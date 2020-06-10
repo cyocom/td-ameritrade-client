@@ -28,20 +28,25 @@ class OauthInterceptor implements Interceptor {
   final protected HttpTdaClient client;
   final protected Properties properties;
 
-  //This gets updated using the refresh code - the first call will always fail, forcing a
-  //new access_token to be set.
-  private String accessToken = "UNSET";
+  private AuthToken goodToken = new AuthToken("UNSET");
 
   public OauthInterceptor(HttpTdaClient client, Properties properties) {
     this.client = client;
     this.properties = properties;
+    final String accessToken = properties.getProperty("tda.access.token");
+    if(accessToken != null){
+      goodToken = new AuthToken(accessToken);
+    }
   }
 
   @Override
   public Response intercept(Chain chain) throws IOException {
+    return intercept(chain, false);
+   }
 
+  private Response intercept(Chain chain, boolean isRetry) throws IOException{
     Request authorizedRequest = chain.request().newBuilder()
-        .addHeader("Authorization", "Bearer " + this.accessToken)
+        .addHeader("Authorization", "Bearer " + this.goodToken.getAccessToken())
         .build();
     Response origResponse = chain.proceed(authorizedRequest);
 
@@ -55,13 +60,20 @@ class OauthInterceptor implements Interceptor {
     String bodyStr = origResponse.peekBody(500).string();
     LOGGER.debug("TDA Not Logged In: {}", bodyStr);
 
+    // reset token from properties
+    final String accessToken = properties.getProperty("tda.access.token");
+    if(accessToken != null){
+      goodToken = new AuthToken(accessToken);
+      intercept(chain, true);
+    }
+
     boolean isAuthenticated = setAuthToken(chain);
     if (!isAuthenticated) {
       throw new IllegalStateException("Failed to get auth token using current refresh token");
     }
 
     authorizedRequest = authorizedRequest.newBuilder().removeHeader("Authorization")
-        .addHeader("Authorization", "Bearer " + this.accessToken)
+        .addHeader("Authorization", "Bearer " + this.goodToken.getAccessToken())
         .build();
     final Response retryResponse = chain.proceed(authorizedRequest);
     //even though we got a new auth token, it still doesn't work.
@@ -79,12 +91,26 @@ class OauthInterceptor implements Interceptor {
    * @return true if a new auth token was successfully set, false if not.
    */
   private boolean setAuthToken(Chain chain) {
-    RequestBody formBody = new FormBody.Builder()
-        .add(AuthToken.GRANT_TYPE_PARAM, AuthToken.GRANT_TYPE_REFRESH)
-        .add(AuthToken.REFRESH_TOKEN_PARAM, this.properties.getProperty("tda.token.refresh"))
-//        .add(AuthToken.ACCESS_TYPE_PARAM, "offline")
-        .add(AuthToken.CLIENT_ID_PARAM, this.properties.getProperty("tda.client_id"))
-        .build();
+
+
+    final RequestBody formBody;
+    final String refreshToken = properties.getProperty("tda.refresh.token");
+    if(this.goodToken.getRefreshToken() == null && refreshToken == null){
+      formBody = new FormBody.Builder()
+          .add(AuthToken.GRANT_TYPE_PARAM, AuthToken.GRANT_TYPE_AUTH)
+          .add(AuthToken.ACCESS_TYPE_PARAM, "offline")
+          .add(AuthToken.CODE_PARAM, this.properties.getProperty("tda.token.code"))
+          .add(AuthToken.CLIENT_ID_PARAM, this.properties.getProperty("tda.client_id"))
+          .add(AuthToken.REDIRECT_URI_PARAM, this.properties.getProperty("tda.redirect_uri"))
+          .build();
+    } else {
+      formBody = new FormBody.Builder()
+          .add(AuthToken.GRANT_TYPE_PARAM, AuthToken.GRANT_TYPE_REFRESH)
+          .add(AuthToken.ACCESS_TYPE_PARAM, "offline")
+          .add(AuthToken.REFRESH_TOKEN_PARAM, refreshToken != null ? refreshToken : goodToken.getRefreshToken())
+          .add(AuthToken.CLIENT_ID_PARAM, this.properties.getProperty("tda.client_id"))
+          .build();
+    }
 
     HttpUrl url = this.client.baseUrl()
         .addPathSegments("oauth2/token")
@@ -111,12 +137,11 @@ class OauthInterceptor implements Interceptor {
       InputStream in = authResponse.body().byteStream();
       AuthToken authToken = DefaultMapper.fromJson(in, AuthToken.class);
       LOGGER.info("new authToken received: {}", authToken);
-      String _accessToken = authToken.getAccessToken();
-      if (StringUtils.isBlank(_accessToken)) {
+      if (StringUtils.isBlank(authToken.getAccessToken())) {
         LOGGER.warn("Got successful OAuth response, but access token is missing");
         return false;
       }
-      this.accessToken = _accessToken;
+      this.goodToken = authToken;
       return true;
     } catch (IOException e) {
       throw new RuntimeException(e);

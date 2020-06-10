@@ -136,10 +136,10 @@ public class HttpTdaClient implements TdaClient {
           "Missing tda.client_id property. This is obtained from TDA developer API when registering an app");
     }
 
-    String refreshToken = tdaProps.getProperty("tda.token.refresh");
+    String refreshToken = tdaProps.getProperty("tda.token.code");
     if (StringUtils.isBlank(refreshToken)) {
       throw new IllegalArgumentException(
-          "Missing tda.token.refresh property. This is obtained from the TDA developer API page when creating a temporary authentication token");
+          "Missing tda.token.code property. This is obtained from the TDA developer API page when creating a temporary authentication token");
     }
 
     String url = tdaProps.getProperty("tda.url");

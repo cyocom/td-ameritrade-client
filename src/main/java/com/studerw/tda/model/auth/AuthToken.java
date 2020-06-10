@@ -21,6 +21,8 @@ public class AuthToken implements Serializable {
   public final static String ACCESS_TYPE_OFFLINE = "offline";
   public final static String CLIENT_ID_PARAM = "client_id";
   public final static String REFRESH_TOKEN_PARAM = "refresh_token";
+  public final static String CODE_PARAM = "code";
+  public final static String REDIRECT_URI_PARAM = "redirect_uri";
 
   @JsonProperty("access_token")
   private String accessToken;
@@ -34,6 +36,13 @@ public class AuthToken implements Serializable {
   private String scope;
   @JsonProperty("refresh_token_expires_in")
   private Long refreshTokenExpiresIn;
+
+  public AuthToken() {
+  }
+
+  public AuthToken(String accessToken) {
+    this.accessToken = accessToken;
+  }
 
   public String getAccessToken() {
     return accessToken;
