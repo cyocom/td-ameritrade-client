@@ -10,6 +10,8 @@ import com.studerw.tda.model.instrument.FullInstrument;
 import com.studerw.tda.model.instrument.Instrument;
 import com.studerw.tda.model.marketdata.Mover;
 import com.studerw.tda.model.option.OptionChain;
+import com.studerw.tda.model.market.Market;
+import com.studerw.tda.model.market.Markets;
 import com.studerw.tda.model.quote.Quote;
 import com.studerw.tda.model.transaction.Transaction;
 import java.io.BufferedInputStream;
@@ -247,6 +249,15 @@ public class TdaJsonParser {
     }
   }
 
+  public Markets parseMarketHours(InputStream in) {
+    try (BufferedInputStream bIn = new BufferedInputStream(in)) {
+      final Markets markets = DefaultMapper.fromJson(bIn, new TypeReference<Markets>(){});
+      return markets;
+    } catch (IOException e) {
+      e.printStackTrace();
+      throw new RuntimeException(e);
+    }
+  }
 
 
 //  public <T> T parseTdaJson(InputStream in, Class<T> type){

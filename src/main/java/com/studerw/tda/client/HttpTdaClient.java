@@ -10,12 +10,6 @@ import com.studerw.tda.model.account.SecuritiesAccount;
 import com.studerw.tda.model.history.PriceHistReq;
 import com.studerw.tda.model.history.PriceHistReqValidator;
 import com.studerw.tda.model.history.PriceHistory;
-import com.studerw.tda.model.instrument.FullInstrument;
-import com.studerw.tda.model.instrument.Instrument;
-import com.studerw.tda.model.instrument.Query;
-import com.studerw.tda.model.marketdata.Mover;
-import com.studerw.tda.model.marketdata.MoversReq;
-import com.studerw.tda.model.option.OptionChain;
 import com.studerw.tda.model.quote.Quote;
 import com.studerw.tda.model.transaction.Transaction;
 import com.studerw.tda.model.transaction.TransactionRequest;
@@ -26,9 +20,14 @@ import com.studerw.tda.parse.Utils;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
+import java.text.SimpleDateFormat;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
-
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
 import okhttp3.Headers;
 import okhttp3.HttpUrl;
 import okhttp3.HttpUrl.Builder;
@@ -54,10 +53,8 @@ public class HttpTdaClient implements TdaClient {
   protected static final DateTimeFormatter ISO_FORMATTER = DateTimeFormatter.BASIC_ISO_DATE;
   protected static final String DEFAULT_PATH = "https://api.tdameritrade.com/v1";
   private static final Logger LOGGER = LoggerFactory.getLogger(HttpTdaClient.class);
-
   final TdaJsonParser tdaJsonParser = new TdaJsonParser();
   final OkHttpClient httpClient;
-
   Properties tdaProps;
   private HttpUrl httpUrl;
 
@@ -67,7 +64,7 @@ public class HttpTdaClient implements TdaClient {
    * <ul>
    *   <li>tda.token.refresh</li>
    *   <li>tda.client_id</li>
-   *   <li>tda.url=<em>https://api.tdameritrade.com/v1</em></li>
+   *   <li>tda.url=<em>https://apis.tdameritrade.com/v1</em></li>
    *   <li>tda.debug.bytes.length=<em>-1</em> (How many bytes of logging interceptor debug to print, -1 is unlimited)</li>
    * </ul>
    *
@@ -83,11 +80,11 @@ public class HttpTdaClient implements TdaClient {
    * To avoid using a properties file, you can define anything that would be in {@code
    * tda-api.properties} file. This includes:
    * </p>
-   *
+
    * <ul>
    *   <li>tda.token.refresh</li>
    *   <li>tda.client_id</li>
-   *   <li>tda.url=<em>https://api.tdameritrade.com/v1</em></li>
+   *   <li>tda.url=<em>https://apis.tdameritrade.com/v1</em></li>
    *   <li>tda.debug.bytes.length=<em>-1</em> (How many bytes of logging interceptor debug to print, -1 is unlimited)</li>
    * </ul>
    *
@@ -219,10 +216,10 @@ public class HttpTdaClient implements TdaClient {
     LOGGER.info("Fetching quotes: {}", symbols);
     HttpUrl url = baseUrl("marketdata", "quotes")
         .addQueryParameter("symbol", String.join(",", symbols))
+        .addQueryParameter("apikey", this.tdaProps.getProperty("tda.client_id"))
         .build();
 
-    Request request = new Request.Builder().url(url)
-        .headers(defaultHeaders())
+    Request request = new Request.Builder().url(url).headers(defaultHeaders())
         .build();
 
     try (Response response = this.httpClient.newCall(request).execute()) {
@@ -258,8 +255,7 @@ public class HttpTdaClient implements TdaClient {
       accountsBldr.addQueryParameter("fields", String.join(",", args));
     }
     final URL url = accountsBldr.build().url();
-    final Request request = new Request.Builder().url(url)
-        .headers(defaultHeaders())
+    final Request request = new Request.Builder().url(url).headers(defaultHeaders())
         .build();
 
     try (Response response = this.httpClient.newCall(request).execute()) {
@@ -286,8 +282,7 @@ public class HttpTdaClient implements TdaClient {
       accountsBldr.addQueryParameter("fields", String.join(",", args));
     }
     final URL url = accountsBldr.build().url();
-    final Request request = new Request.Builder().url(url)
-        .headers(defaultHeaders())
+    final Request request = new Request.Builder().url(url).headers(defaultHeaders())
         .build();
 
     try (Response response = this.httpClient.newCall(request).execute()) {
@@ -356,8 +351,7 @@ public class HttpTdaClient implements TdaClient {
       urlBuilder.addQueryParameter("status", orderRequest.getStatus().name());
     }
 
-    Request request = new Request.Builder().url(urlBuilder.build())
-        .headers(defaultHeaders())
+    Request request = new Request.Builder().url(urlBuilder.build()).headers(defaultHeaders())
         .build();
 
     try (Response response = this.httpClient.newCall(request).execute()) {
@@ -692,9 +686,32 @@ public class HttpTdaClient implements TdaClient {
     }
   }
 
+  @Override
+  public Markets fetchMarketHours(Date date, MarketType marketType) {
+    final Builder marketHoursBldr = baseUrl("marketdata",marketType.name().toLowerCase(),"hours");
+    if(date == null){
+      throw new IllegalArgumentException("date cannot be blank.");
+    }
+
+    SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd");
+    marketHoursBldr.addQueryParameter("date", format.format(date));
+
+    final URL url = marketHoursBldr.build().url();
+    final Request request = new Request.Builder().url(url).headers(defaultHeaders())
+        .build();
+
+    try (Response response = this.httpClient.newCall(request).execute()) {
+      checkResponse(response);
+      return tdaJsonParser.parseMarketHours(response.body().byteStream());
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
   /**
    * @param response the tda response
-   * @param emptyJsonOk is an empty JSON object or array actually OK (e.g. fetchMovers)?
+   * @return if it's a 200 response with a valid looking body, the method returns okay. Otherwise an
+   * unchecked exception is thrown.
    */
   private void checkResponse(Response response, boolean emptyJsonOk) {
     if (!response.isSuccessful()) {
